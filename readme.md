@@ -95,4 +95,4 @@ The application consists of two main components:
 
 ## Contact
 For any queries or support, please contact:
-- Email: your.email@example.com
+- Email: junsupark0213@korea.ac.kr
