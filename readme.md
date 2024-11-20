@@ -7,6 +7,10 @@ GenomicsPACS-Linker is a web-based application that provides seamless integratio
 ![GenomicsPACS-Linker Interface](./assets/interface-screenshot.png)
 *The main interface of GenomicsPACS-Linker showing the study list with search functionality and viewer launch options*
 
+## System Flow
+![GenomicsPACS-Linker System Flow](./assets/flowchart.png)
+*Detailed system flow diagram showing the interaction between UI and API components*
+
 ## Features
 - **Searchable Study List**: Filter patients by ID and study date
 - **Sortable Columns**: Organize data by patient ID or study date
