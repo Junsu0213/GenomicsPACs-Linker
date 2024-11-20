@@ -1,18 +1,32 @@
+# -*- coding:utf-8 -*-
+"""
+Created on Tue. Mar. 19 14:30:00 2024
+@author: JUN-SU PARK
+
+This script implements a Streamlit-based web interface for the GenomicsPACS-Linker that:
+1. Displays a searchable and sortable list of patient studies
+2. Provides filtering by Patient ID and Study Date
+3. Enables direct launching of X-ray and CT viewers
+4. Implements pagination for better performance with large datasets
+5. Communicates with a Flask backend API to handle viewer requests
+"""
+
+# Standard library imports
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import requests
 import json
 
-# Custom styling including logo area
+# Custom styling including logo area and UI components
 st.markdown("""
     <style>
     .stApp {
-        background-color: #0b0c3e;
+        background-color: #0b0c3e;  /* Dark blue background */
         color: white;
     }
     .logo-container {
-        background-color: #0a1157;
+        background-color: #0a1157;  /* Slightly darker blue for logo area */
         padding: 1rem;
         margin-bottom: 2rem;
         border-bottom: 1px solid #1a1f4c;
@@ -29,14 +43,18 @@ st.markdown("""
         opacity: 0.9;
         margin-top: 5px;
     }
+    /* Expander styling for study list */
     div[data-testid="stExpander"] {
         background-color: #0b0c3e;
         border: none;
+        margin: -0.9rem 0 !important;
+        padding: 0 !important;
     }
     div[data-testid="stExpanderContent"] {
         background-color: #1a1f4c;
         padding: 10px;
     }
+    /* Button styling */
     button[kind="secondary"] {
         width: 100% !important;
         height: 38px !important;
@@ -46,24 +64,19 @@ st.markdown("""
     div.stButton > button {
         margin-top: 0px;
     }
+    /* Layout adjustments */
     div[data-testid="stExpanderContent"] div.row-widget.stHorizontal {
         gap: 0.5rem !important;
     }
-    
     div[data-testid="stExpanderContent"] .stButton button {
         width: 100% !important;
         margin: 0 !important;
         display: block !important;
     }
-    div[data-testid="stExpander"] {
-        margin: -0.9rem 0 !important;
-        padding: 0 !important;
-        border: none !important;
-    }
-    
     .streamlit-expanderHeader {
         padding: 0.5rem !important;
     }
+    /* Pagination styling */
     .pagination {
         margin-top: 2rem;
         padding: 1rem;
@@ -79,18 +92,37 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
+# Application title
 st.title("Study List")
 
 @st.cache_data
 def load_data(file_path):
-    """Load and cache the CSV data"""
+    """
+    Load and cache patient study data from CSV file
+    
+    Args:
+        file_path (str): Path to the CSV file containing patient study information
+        
+    Returns:
+        pd.DataFrame: Processed DataFrame with formatted study dates
+    """
     df = pd.read_csv(file_path)
-    # Study_Date 형식 변환
+    # Convert Study_Date format to YYYY-MM-DD
     df['Study_Date'] = pd.to_datetime(df['Study_Date'], format='%Y%m%d').dt.strftime('%Y-%m-%d')
     return df
 
 def send_to_api(patient_id, study_date, modality):
-    """Send data to API and handle response"""
+    """
+    Send study information to backend API for viewer launching
+    
+    Args:
+        patient_id (str): Patient's unique identifier
+        study_date (str): Date of the study in YYYY-MM-DD format
+        modality (str): Type of imaging study (X-ray or CT)
+        
+    Returns:
+        dict: Response containing status and optional error message
+    """
     api_url = "http://localhost:8000/api/viewer"
     
     payload = {
@@ -110,7 +142,6 @@ def send_to_api(patient_id, study_date, modality):
         if response.status_code == 200:
             return {"status": "success", "data": response.json()}
         elif response.status_code == 404:
-            # API에서 반환된 에러 메시지 사용
             error_data = response.json()
             return {"status": "error", "message": error_data.get('message', 'Study not found')}
         else:
@@ -122,23 +153,32 @@ def send_to_api(patient_id, study_date, modality):
         return {"status": "error", "message": "Failed to retrieve study information"}
 
 def main():
-    # Initialize session state
+    """
+    Main application function that handles:
+    - Data loading and caching
+    - Search and filter functionality
+    - Sorting implementation
+    - Pagination logic
+    - UI rendering
+    - Viewer launch requests
+    """
+    # Initialize session state for sorting
     if 'sort_column' not in st.session_state:
         st.session_state.sort_column = 'Study_Date'
         st.session_state.sort_ascending = True
     
-    # 실제 데이터 로드
+    # Load data if not already in session state
     if 'df' not in st.session_state:
         st.session_state.df = load_data('patient_info.csv')
 
-    # Search filters
+    # Search filters UI
     col1, col2 = st.columns(2)
     with col1:
         patient_search = st.text_input("Search Patient ID")
     with col2:
         date_search = st.text_input("Search Study Date (YYYY-MM-DD)")
 
-    # Clickable column headers
+    # Sortable column headers
     col1, col2 = st.columns(2)
     with col1:
         if st.button(
@@ -162,7 +202,7 @@ def main():
                 st.session_state.sort_column = 'Study_Date'
                 st.session_state.sort_ascending = True
 
-    # Filter and sort data
+    # Apply filters and sorting
     filtered_df = st.session_state.df.copy()
     if patient_search:
         filtered_df = filtered_df[filtered_df['Patient_ID'].str.contains(patient_search, case=False)]
@@ -174,18 +214,19 @@ def main():
         ascending=st.session_state.sort_ascending
     )
 
-    # 페이지네이션 계산
+    # Pagination setup
     items_per_page = 20
     total_pages = len(filtered_df) // items_per_page + (1 if len(filtered_df) % items_per_page > 0 else 0)
     
     if 'current_page' not in st.session_state:
         st.session_state.current_page = 1
     
+    # Calculate current page's data range
     start_idx = (st.session_state.current_page - 1) * items_per_page
     end_idx = start_idx + items_per_page
     page_df = filtered_df.iloc[start_idx:end_idx]
 
-    # Display data with expandable rows
+    # Display study list with expandable rows
     for idx, row in page_df.iterrows():
         exp_col1, exp_col2 = st.columns(2)
         with exp_col1:
@@ -193,9 +234,11 @@ def main():
         with exp_col2:
             date_text = row['Study_Date']
         
+        # Expandable row with viewer buttons
         with st.expander(f":blue[{patient_text}]{'　'*20}{date_text}"):
             col1, col_space, col2 = st.columns([1, 0.00001, 1])
             
+            # X-ray viewer button
             with col1:
                 if st.button("Open X-ray Viewer", key=f"xray_{idx}", type="primary"):
                     result = send_to_api(
@@ -208,6 +251,7 @@ def main():
                     else:
                         st.error(result["message"])
             
+            # CT viewer button
             with col2:
                 if st.button("Open CT Viewer", key=f"ct_{idx}", type="primary"):
                     result = send_to_api(
@@ -220,7 +264,7 @@ def main():
                     else:
                         st.error(result["message"])
 
-    # 페이지네이션 UI (하단에 배치)
+    # Pagination UI
     st.markdown('<div class="pagination">', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([2,1,2])
     with col2:
