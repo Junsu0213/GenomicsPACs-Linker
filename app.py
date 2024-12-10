@@ -17,6 +17,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import requests
 import json
+import sqlite3
 
 # Custom styling including logo area and UI components
 st.markdown("""
@@ -95,20 +96,25 @@ st.markdown("""
 # Application title
 st.title("Study List")
 
+@st.cache_resource
+def get_db_connection():
+    """데이터베이스 연결 생성 및 캐싱"""
+    conn = sqlite3.connect('genomics_pacs.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
 @st.cache_data
-def load_data(file_path):
-    """
-    Load and cache patient study data from CSV file
-    
-    Args:
-        file_path (str): Path to the CSV file containing patient study information
-        
-    Returns:
-        pd.DataFrame: Processed DataFrame with formatted study dates
-    """
-    df = pd.read_csv(file_path)
-    # Convert Study_Date format to YYYY-MM-DD
-    df['Study_Date'] = pd.to_datetime(df['Study_Date'], format='%Y%m%d').dt.strftime('%Y-%m-%d')
+def load_data():
+    """데이터베이스에서 연구 데이터 로드"""
+    conn = get_db_connection()
+    df = pd.read_sql_query('''
+        SELECT patient_id as Patient_ID, 
+               study_date as Study_Date,
+               modality as Modality
+        FROM studies
+        ORDER BY study_date DESC
+    ''', conn)
+    conn.close()
     return df
 
 def send_to_api(patient_id, study_date, modality):
@@ -169,7 +175,7 @@ def main():
     
     # Load data if not already in session state
     if 'df' not in st.session_state:
-        st.session_state.df = load_data('patient_info.csv')
+        st.session_state.df = load_data()
 
     # Search filters UI
     col1, col2 = st.columns(2)

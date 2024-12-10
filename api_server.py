@@ -17,6 +17,7 @@ import pandas as pd
 import webbrowser
 from datetime import datetime
 import os
+import sqlite3
 
 # Initialize Flask application and enable CORS
 app = Flask(__name__)
@@ -25,42 +26,20 @@ CORS(app)  # Enable Cross-Origin Resource Sharing
 # Configuration
 VIEWER_HOST = os.environ.get('VIEWER_HOST', '192.168.44.190')
 
-# Global DataFrame for storing patient metadata
-df = None
-
-def load_data():
-    """
-    Load and preprocess patient metadata from CSV file
-    
-    Global Effects:
-        Updates the global DataFrame 'df' with formatted study dates
-    """
-    global df
-    df = pd.read_csv('patient_metainfo.csv')
-    # Standardize Study_Date format to YYYY-MM-DD
-    df['Study_Date'] = pd.to_datetime(df['Study_Date'], format='%Y%m%d').dt.strftime('%Y-%m-%d')
-
-# Load data when server starts
-load_data()
+# DataFrame 대신 데이터베이스 연결 함수 사용
+def get_db_connection():
+    """데이터베이스 연결 생성"""
+    conn = sqlite3.connect('genomics_pacs.db')
+    conn.row_factory = sqlite3.Row
+    return conn
 
 @app.route('/api/viewer', methods=['POST'])
 def handle_viewer_request():
-    """
-    Handle incoming viewer launch requests
-    
-    Expected JSON payload:
-        patient_id (str): Patient's unique identifier
-        study_date (str): Study date in YYYY-MM-DD format
-        modality (str): Imaging modality type
-        
-    Returns:
-        JSON response with status and viewer URL or error message
-    """
+    """뷰어 실행 요청 처리"""
     try:
-        # Parse incoming JSON data
         data = request.get_json()
         
-        # Validate required fields
+        # 필수 필드 검증
         required_fields = ['patient_id', 'study_date', 'modality']
         if not all(field in data for field in required_fields):
             return jsonify({
@@ -68,33 +47,31 @@ def handle_viewer_request():
                 'message': 'Missing required fields'
             }), 400
 
-        # Extract request parameters
-        study_date = data['study_date']
-        patient_id = data['patient_id']
-        modality = data['modality']
+        # 데이터베이스에서 매칭되는 연구 찾기
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT study_instance_uid
+            FROM studies
+            WHERE patient_id = ? AND study_date = ? AND modality = ?
+        ''', (data['patient_id'], data['study_date'], data['modality']))
+        
+        result = cursor.fetchone()
+        conn.close()
 
-        # Find matching study in database
-        matched_row = df[
-            (df['Patient_ID'] == patient_id) & 
-            (df['Study_Date'] == study_date) &
-            (df['Modality'] == modality)
-        ]
-
-        # Handle case when no matching study is found
-        if matched_row.empty:
+        if not result:
             return jsonify({
                 'status': 'error',
                 'message': 'No matching study found'
             }), 404
 
-        # Get StudyInstanceUID and generate viewer URL using configured host
-        study_instance_uid = matched_row.iloc[0]['StudyInstanceUID']
+        # 뷰어 URL 생성 및 실행
+        study_instance_uid = result['study_instance_uid']
         viewer_url = f"http://{VIEWER_HOST}/segmentation?StudyInstanceUIDs={study_instance_uid}"
         
-        # Open viewer in new browser tab
         webbrowser.open_new_tab(viewer_url)
 
-        # Return success response
         return jsonify({
             'status': 'success',
             'message': 'Viewer opened successfully',
@@ -103,7 +80,6 @@ def handle_viewer_request():
         }), 200
 
     except Exception as e:
-        # Handle any unexpected errors
         return jsonify({
             'status': 'error',
             'message': str(e)
